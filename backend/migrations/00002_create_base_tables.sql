@@ -6,8 +6,8 @@ CREATE TABLE IF NOT EXISTS users (
     name          TEXT     NOT NULL,
     email         TEXT     NOT NULL UNIQUE,
     password_hash TEXT     NOT NULL,
-    created_at    INTEGER  NOT NULL DEFAULT (strftime('%s', 'now')),
-    updated_at    INTEGER  NOT NULL DEFAULT (strftime('%s', 'now'))
+    created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at    DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -18,8 +18,8 @@ CREATE TABLE IF NOT EXISTS products (
     price          REAL     NOT NULL DEFAULT 0,
     is_composto    INTEGER  NOT NULL DEFAULT 0 CHECK(is_composto IN (0,1)),
     stock_quantity REAL     NOT NULL DEFAULT 0,
-    created_at     INTEGER  NOT NULL DEFAULT (strftime('%s', 'now')),
-    updated_at     INTEGER  NOT NULL DEFAULT (strftime('%s', 'now'))
+    created_at     DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at     DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS ingredients (
@@ -27,8 +27,8 @@ CREATE TABLE IF NOT EXISTS ingredients (
     name           TEXT     NOT NULL,
     unit           TEXT     NOT NULL DEFAULT 'un',
     stock_quantity REAL     NOT NULL DEFAULT 0,
-    created_at     INTEGER  NOT NULL DEFAULT (strftime('%s', 'now')),
-    updated_at     INTEGER  NOT NULL DEFAULT (strftime('%s', 'now'))
+    created_at     DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at     DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS product_ingredients (

@@ -1,0 +1,206 @@
+package handler
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strconv"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/jeanGouveia/pratoOnline/backend/internal/service"
+)
+
+type ProductHandler struct {
+	svc *service.ProductService
+}
+
+func NewProductHandler(svc *service.ProductService) *ProductHandler {
+	return &ProductHandler{svc: svc}
+}
+
+// ── Produto ──────────────────────────────────────────────────────────────────
+
+// POST /api/products
+func (h *ProductHandler) CreateProduct(w http.ResponseWriter, r *http.Request) {
+	var in service.CreateProductInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		jsonError(w, "body inválido", http.StatusBadRequest)
+		return
+	}
+	if err := validate.Struct(in); err != nil {
+		jsonValidationError(w, err)
+		return
+	}
+	p, err := h.svc.CreateProduct(r.Context(), in)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusCreated, p)
+}
+
+// GET /api/products
+func (h *ProductHandler) ListProducts(w http.ResponseWriter, r *http.Request) {
+	products, err := h.svc.ListProducts(r.Context())
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, products)
+}
+
+// GET /api/products/{id}
+func (h *ProductHandler) GetProduct(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r, "id")
+	if err != nil {
+		jsonError(w, "id inválido", http.StatusBadRequest)
+		return
+	}
+	p, err := h.svc.GetProduct(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, service.ErrProductNotFound) {
+			jsonError(w, "produto não encontrado", http.StatusNotFound)
+			return
+		}
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, p)
+}
+
+// DELETE /api/products/{id}
+func (h *ProductHandler) DeleteProduct(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r, "id")
+	if err != nil {
+		jsonError(w, "id inválido", http.StatusBadRequest)
+		return
+	}
+	if err := h.svc.DeleteProduct(r.Context(), id); err != nil {
+		if errors.Is(err, service.ErrProductNotFound) {
+			jsonError(w, "produto não encontrado", http.StatusNotFound)
+			return
+		}
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]string{"message": "produto removido"})
+}
+
+// ── Ingrediente ──────────────────────────────────────────────────────────────
+
+// POST /api/ingredients
+func (h *ProductHandler) CreateIngredient(w http.ResponseWriter, r *http.Request) {
+	var in service.CreateIngredientInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		jsonError(w, "body inválido", http.StatusBadRequest)
+		return
+	}
+	if err := validate.Struct(in); err != nil {
+		jsonValidationError(w, err)
+		return
+	}
+	i, err := h.svc.CreateIngredient(r.Context(), in)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusCreated, i)
+}
+
+// GET /api/ingredients
+func (h *ProductHandler) ListIngredients(w http.ResponseWriter, r *http.Request) {
+	ingredients, err := h.svc.ListIngredients(r.Context())
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, ingredients)
+}
+
+// PATCH /api/ingredients/{id}/stock
+func (h *ProductHandler) UpdateIngredientStock(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r, "id")
+	if err != nil {
+		jsonError(w, "id inválido", http.StatusBadRequest)
+		return
+	}
+	var in service.UpdateStockInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		jsonError(w, "body inválido", http.StatusBadRequest)
+		return
+	}
+	if err := validate.Struct(in); err != nil {
+		jsonValidationError(w, err)
+		return
+	}
+	i, err := h.svc.UpdateIngredientStock(r.Context(), id, in)
+	if err != nil {
+		if errors.Is(err, service.ErrIngredientNotFound) {
+			jsonError(w, "ingrediente não encontrado", http.StatusNotFound)
+			return
+		}
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, i)
+}
+
+// ── Ficha técnica ────────────────────────────────────────────────────────────
+
+// PUT /api/products/{id}/ingredients
+func (h *ProductHandler) SetProductIngredients(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r, "id")
+	if err != nil {
+		jsonError(w, "id inválido", http.StatusBadRequest)
+		return
+	}
+	var in service.SetProductIngredientsInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		jsonError(w, "body inválido", http.StatusBadRequest)
+		return
+	}
+	if err := validate.Struct(in); err != nil {
+		jsonValidationError(w, err)
+		return
+	}
+	if err := h.svc.SetProductIngredients(r.Context(), id, in); err != nil {
+		if errors.Is(err, service.ErrProductNotFound) {
+			jsonError(w, "produto não encontrado", http.StatusNotFound)
+			return
+		}
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]string{"message": "ficha técnica atualizada"})
+}
+
+// GET /api/products/{id}/ingredients
+func (h *ProductHandler) GetProductIngredients(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r, "id")
+	if err != nil {
+		jsonError(w, "id inválido", http.StatusBadRequest)
+		return
+	}
+	p, err := h.svc.GetProduct(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, service.ErrProductNotFound) {
+			jsonError(w, "produto não encontrado", http.StatusNotFound)
+			return
+		}
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, p.Ingredients)
+}
+
+// ── helper ───────────────────────────────────────────────────────────────────
+
+func parseID(r *http.Request, param string) (uint, error) {
+	raw := chi.URLParam(r, param)
+	id, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return uint(id), nil
+}

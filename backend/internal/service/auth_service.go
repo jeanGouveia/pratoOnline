@@ -1,111 +1,164 @@
 package service
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/seu-usuario/my-app/backend/internal/domain"
-	"github.com/seu-usuario/my-app/backend/internal/ports"
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/jeanGouveia/pratoOnline/backend/internal/domain"
+	"github.com/jeanGouveia/pratoOnline/backend/internal/ports"
 )
 
 var (
-	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrUserExists        = errors.New("user already exists")
+	ErrEmailAlreadyExists = errors.New("e-mail já cadastrado")
+	ErrInvalidCredentials = errors.New("e-mail ou senha inválidos")
 )
 
+// JWTClaims é exportado para que o middleware possa usar o tipo.
+type JWTClaims struct {
+	UserID uint   `json:"uid"` 
+	Email  string `json:"email"` 
+	Name   string `json:"name"` 
+	jwt.RegisteredClaims
+}
+
 type AuthService struct {
-	userRepo ports.UserRepository
-	jwtSecret []byte
+	userRepo  ports.UserRepository
+	secret    []byte
+	expiry    time.Duration
+	bcryptCost int
 }
 
-func NewAuthService(userRepo ports.UserRepository, jwtSecret string) *AuthService {
+func NewAuthService(userRepo ports.UserRepository) *AuthService {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		secret = "dev-secret-troque-em-producao"
+	}
 	return &AuthService{
-		userRepo:  userRepo,
-		jwtSecret: []byte(jwtSecret),
+		userRepo:   userRepo,
+		secret:     []byte(secret),
+		expiry:     24 * time.Hour,
+		bcryptCost: bcrypt.DefaultCost,
 	}
 }
 
-func (s *AuthService) Register(name, email, password string) (*domain.User, error) {
-	// Check if user already exists
-	existing, _ := s.userRepo.FindByEmail(email)
+// --- Register ---
+
+type RegisterInput struct {
+	Name     string `json:"name"     validate:"required,min=2,max=100"` 
+	Email    string `json:"email"    validate:"required,email"` 
+	Password string `json:"password" validate:"required,min=6"` 
+}
+
+func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*domain.User, error) {
+	existing, err := s.userRepo.FindByEmail(ctx, input.Email)
+	if err != nil {
+		return nil, fmt.Errorf("Register: %w", err)
+	}
 	if existing != nil {
-		return nil, ErrUserExists
+		return nil, ErrEmailAlreadyExists
 	}
 
-	// Hash password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), s.bcryptCost)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Register: hash: %w", err)
 	}
 
 	user := &domain.User{
-		Name:         name,
-		Email:        email,
-		PasswordHash: string(hashedPassword),
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+		Name:         input.Name,
+		Email:        input.Email,
+		PasswordHash: string(hash),
 	}
-
-	if err := s.userRepo.Create(user); err != nil {
-		return nil, err
+	if err = s.userRepo.Create(ctx, user); err != nil {
+		return nil, fmt.Errorf("Register: %w", err)
 	}
-
 	return user, nil
 }
 
-func (s *AuthService) Login(email, password string) (string, *domain.User, error) {
-	user, err := s.userRepo.FindByEmail(email)
+// --- Login ---
+
+type LoginInput struct {
+	Email    string `json:"email"    validate:"required,email"` 
+	Password string `json:"password" validate:"required"` 
+}
+
+type LoginResult struct {
+	Token string
+	User  *domain.User
+}
+
+func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult, error) {
+	user, err := s.userRepo.FindByEmail(ctx, input.Email)
 	if err != nil {
-		return "", nil, err
+		return nil, fmt.Errorf("Login: %w", err)
 	}
+	// Mesmo erro para e-mail inexistente e senha errada (evita user enumeration)
 	if user == nil {
-		return "", nil, ErrInvalidCredentials
+		return nil, ErrInvalidCredentials
+	}
+	if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.Password)); err != nil {
+		return nil, ErrInvalidCredentials
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		return "", nil, ErrInvalidCredentials
-	}
-
-	token, err := s.generateJWT(user.ID)
+	token, err := s.generateJWT(user)
 	if err != nil {
-		return "", nil, err
+		return nil, fmt.Errorf("Login: %w", err)
 	}
-
-	return token, user, nil
+	return &LoginResult{Token: token, User: user}, nil
 }
 
-func (s *AuthService) generateJWT(userID uint) (string, error) {
-	claims := jwt.MapClaims{
-		"user_id": userID,
-		"exp":     time.Now().Add(24 * time.Hour).Unix(),
+// --- ValidateToken ---
+// Retorna *JWTClaims (exportado) para o middleware extrair UserID, Email e Name.
+
+func (s *AuthService) ValidateToken(tokenStr string) (*JWTClaims, error) {
+	token, err := jwt.ParseWithClaims(
+		tokenStr,
+		&JWTClaims{},
+		func(t *jwt.Token) (interface{}, error) {
+			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("algoritmo inesperado: %v", t.Header["alg"])
+			}
+			return s.secret, nil
+		},
+		jwt.WithExpirationRequired(),
+		jwt.WithIssuedAt(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ValidateToken: %w", err)
 	}
 
+	claims, ok := token.Claims.(*JWTClaims)
+	if !ok || !token.Valid {
+		return nil, errors.New("ValidateToken: claims inválidos")
+	}
+	return claims, nil
+}
+
+// --- helper privado ---
+
+func (s *AuthService) generateJWT(user *domain.User) (string, error) {
+	now := time.Now()
+	claims := JWTClaims{
+		UserID: user.ID,
+		Email:  user.Email,
+		Name:   user.Name,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "pratoOnline",
+			Subject:   fmt.Sprintf("%d", user.ID),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(s.expiry)),
+			NotBefore: jwt.NewNumericDate(now),
+		},
+	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(s.jwtSecret)
-}
-
-func (s *AuthService) GenerateJWTForUser(userID uint) (string, error) {
-	return s.generateJWT(userID)
-}
-
-func (s *AuthService) ValidateToken(tokenString string) (uint, error) {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("invalid signing method")
-		}
-		return s.jwtSecret, nil
-	})
-
+	signed, err := token.SignedString(s.secret)
 	if err != nil {
-		return 0, err
+		return "", fmt.Errorf("generateJWT: %w", err)
 	}
-
-	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		userID := uint(claims["user_id"].(float64))
-		return userID, nil
-	}
-
-	return 0, errors.New("invalid token")
+	return signed, nil
 }

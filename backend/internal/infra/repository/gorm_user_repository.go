@@ -1,23 +1,28 @@
 package repository
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"time"
 
-	"github.com/seu-usuario/my-app/backend/internal/domain"
-	"github.com/seu-usuario/my-app/backend/internal/ports"
 	"gorm.io/gorm"
+
+	"github.com/jeanGouveia/pratoOnline/backend/internal/domain"
+	"github.com/jeanGouveia/pratoOnline/backend/internal/ports"
 )
 
-// gormUserModel é o modelo GORM. Tags de banco APENAS aqui, nunca no domain.
 type gormUserModel struct {
-	gorm.Model
-	Name         string `gorm:"not null"`
-	Email        string `gorm:"uniqueIndex;not null"`
-	PasswordHash string `gorm:"not null"`
+	ID           uint   `gorm:"primaryKey;autoIncrement"` 
+	Name         string `gorm:"not null"` 
+	Email        string `gorm:"uniqueIndex;not null"` 
+	PasswordHash string `gorm:"not null"` 
+	CreatedAt    int64  `gorm:"autoCreateTime"`
+	UpdatedAt    int64  `gorm:"autoUpdateTime"`
 }
 
-// GormUserRepository implementa ports.UserRepository via GORM.
-// Verificação em tempo de compilação — falha se a interface não for satisfeita.
+func (gormUserModel) TableName() string { return "users" }
+
 var _ ports.UserRepository = (*GormUserRepository)(nil)
 
 type GormUserRepository struct {
@@ -28,56 +33,52 @@ func NewGormUserRepository(db *gorm.DB) *GormUserRepository {
 	return &GormUserRepository{db: db}
 }
 
-func (r *GormUserRepository) Create(user *domain.User) error {
-	model := toModel(user)
-	result := r.db.Create(&model)
-	if result.Error != nil {
-		return result.Error
+func (r *GormUserRepository) Create(ctx context.Context, user *domain.User) error {
+	model := gormUserModel{
+		Name:         user.Name,
+		Email:        user.Email,
+		PasswordHash: user.PasswordHash,
 	}
-	user.ID = uint(model.ID)
+	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+		return fmt.Errorf("UserRepository.Create: %w", err)
+	}
+	user.ID = model.ID
+	user.CreatedAt = time.Unix(model.CreatedAt, 0)
+	user.UpdatedAt = time.Unix(model.UpdatedAt, 0)
 	return nil
 }
 
-func (r *GormUserRepository) FindByEmail(email string) (*domain.User, error) {
+func (r *GormUserRepository) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
 	var model gormUserModel
-	result := r.db.Where("email = ?", email).First(&model)
-	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+	err := r.db.WithContext(ctx).Where("email = ?", email).First(&model).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
-	if result.Error != nil {
-		return nil, result.Error
+	if err != nil {
+		return nil, fmt.Errorf("UserRepository.FindByEmail: %w", err)
 	}
-	return toDomain(&model), nil
+	return toDomainUser(&model), nil
 }
 
-func (r *GormUserRepository) FindByID(id uint) (*domain.User, error) {
+func (r *GormUserRepository) FindByID(ctx context.Context, id uint) (*domain.User, error) {
 	var model gormUserModel
-	result := r.db.First(&model, id)
-	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+	err := r.db.WithContext(ctx).First(&model, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
-	if result.Error != nil {
-		return nil, result.Error
+	if err != nil {
+		return nil, fmt.Errorf("UserRepository.FindByID: %w", err)
 	}
-	return toDomain(&model), nil
+	return toDomainUser(&model), nil
 }
 
-// Mappers: isolam a conversão entre domain e infra
-func toModel(u *domain.User) gormUserModel {
-	return gormUserModel{
-		Name:         u.Name,
-		Email:        u.Email,
-		PasswordHash: u.PasswordHash,
-	}
-}
-
-func toDomain(m *gormUserModel) *domain.User {
+func toDomainUser(m *gormUserModel) *domain.User {
 	return &domain.User{
-		ID:           uint(m.ID),
+		ID:           m.ID,
 		Name:         m.Name,
 		Email:        m.Email,
 		PasswordHash: m.PasswordHash,
-		CreatedAt:    m.CreatedAt,
-		UpdatedAt:    m.UpdatedAt,
+		CreatedAt:    time.Unix(m.CreatedAt, 0),
+		UpdatedAt:    time.Unix(m.UpdatedAt, 0),
 	}
 }

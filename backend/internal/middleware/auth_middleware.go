@@ -5,9 +5,13 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/seu-usuario/my-app/backend/internal/service"
+	"github.com/jeanGouveia/pratoOnline/backend/internal/service"
 )
+
+type contextKey string
+
+const ContextKeyUserID contextKey = "user_id"
+const ContextKeyClaims contextKey = "claims"
 
 type AuthMiddleware struct {
 	authService *service.AuthService
@@ -19,35 +23,47 @@ func NewAuthMiddleware(authService *service.AuthService) *AuthMiddleware {
 
 func (m *AuthMiddleware) Auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Try to get token from cookie first
-		cookie, err := r.Cookie("auth_token")
 		var token string
-		
-		if err == nil {
+
+		// Estratégia 1: Cookie HttpOnly (produção)
+		if cookie, err := r.Cookie("auth_token"); err == nil {
 			token = cookie.Value
-		} else {
-			// Fallback to Authorization header
-			authHeader := r.Header.Get("Authorization")
-			if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
-				token = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+
+		// Estratégia 2: Authorization header (dev / Postman)
+		if token == "" {
+			if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+				token = strings.TrimPrefix(h, "Bearer ")
 			}
 		}
 
 		if token == "" {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
 
-		userID, err := m.authService.ValidateToken(token)
+		claims, err := m.authService.ValidateToken(token)
 		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
 
-		// Inject user ID into context
-		ctx := middleware.GetReqCtx(r.Context())
-		ctx = context.WithValue(ctx, "user_id", userID)
-		
+		// Injeta UserID e claims completos no context
+		ctx := context.WithValue(r.Context(), ContextKeyUserID, claims.UserID)
+		ctx = context.WithValue(ctx, ContextKeyClaims, claims)
+
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// GetUserIDFromContext extrai o UserID injetado pelo middleware.
+func GetUserIDFromContext(ctx context.Context) (uint, bool) {
+	id, ok := ctx.Value(ContextKeyUserID).(uint)
+	return id, ok
+}
+
+// GetClaimsFromContext extrai os claims completos (UserID, Email, Name).
+func GetClaimsFromContext(ctx context.Context) (*service.JWTClaims, bool) {
+	claims, ok := ctx.Value(ContextKeyClaims).(*service.JWTClaims)
+	return claims, ok
 }

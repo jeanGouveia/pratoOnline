@@ -1,12 +1,13 @@
 package ports
 
-import "github.com/seu-usuario/my-app/backend/internal/domain"
+import (
+	"context"
 
-// UserRepository é o contrato que isola o domínio da infraestrutura.
-// Qualquer banco de dados (SQLite, Oracle, Postgres) deve implementar esta interface.
-// NENHUMA query SQL, NENHUM tipo GORM deve aparecer fora de internal/infra/repository/.
+	"github.com/jeanGouveia/pratoOnline/backend/internal/domain"
+)
+
 type UserRepository interface {
-	Create(user *domain.User) error
-	FindByEmail(email string) (*domain.User, error)
-	FindByID(id uint) (*domain.User, error)
+	Create(ctx context.Context, user *domain.User) error
+	FindByEmail(ctx context.Context, email string) (*domain.User, error)
+	FindByID(ctx context.Context, id uint) (*domain.User, error)
 }

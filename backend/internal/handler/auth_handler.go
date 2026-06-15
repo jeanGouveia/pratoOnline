@@ -2,11 +2,17 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/seu-usuario/my-app/backend/internal/service"
+	"github.com/go-playground/validator/v10"
+
+	"github.com/jeanGouveia/pratoOnline/backend/internal/middleware"
+	"github.com/jeanGouveia/pratoOnline/backend/internal/service"
 )
+
+var validate = validator.New()
 
 type AuthHandler struct {
 	authService *service.AuthService
@@ -16,120 +22,135 @@ func NewAuthHandler(authService *service.AuthService) *AuthHandler {
 	return &AuthHandler{authService: authService}
 }
 
-type RegisterRequest struct {
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
-type LoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
-type AuthResponse struct {
-	Token string      `json:"token"`
-	User  interface{} `json:"user"`
-}
+// --- POST /api/auth/register ---
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
-	var req RegisterRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	var input service.RegisterInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		jsonError(w, "body inválido", http.StatusBadRequest)
+		return
+	}
+	if err := validate.Struct(input); err != nil {
+		jsonValidationError(w, err)
 		return
 	}
 
-	user, err := h.authService.Register(req.Name, req.Email, req.Password)
+	user, err := h.authService.Register(r.Context(), input)
 	if err != nil {
-		if err == service.ErrUserExists {
-			http.Error(w, err.Error(), http.StatusConflict)
+		if errors.Is(err, service.ErrEmailAlreadyExists) {
+			jsonError(w, "e-mail já cadastrado", http.StatusConflict)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		jsonError(w, "erro interno", http.StatusInternalServerError)
 		return
 	}
 
-	token, err := h.authService.GenerateJWTForUser(user.ID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Set HttpOnly cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:     "auth_token",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   false, // Set to true in production with HTTPS
-		SameSite: http.SameSiteStrictMode,
-	})
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(AuthResponse{
-		Token: token,
-		User: map[string]interface{}{
-			"id":    user.ID,
-			"name":  user.Name,
-			"email": user.Email,
-		},
+	jsonResponse(w, http.StatusCreated, map[string]interface{}{
+		"id":    user.ID,
+		"name":  user.Name,
+		"email": user.Email,
 	})
 }
+
+// --- POST /api/auth/login ---
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	var req LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	var input service.LoginInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		jsonError(w, "body inválido", http.StatusBadRequest)
+		return
+	}
+	if err := validate.Struct(input); err != nil {
+		jsonValidationError(w, err)
 		return
 	}
 
-	token, user, err := h.authService.Login(req.Email, req.Password)
+	result, err := h.authService.Login(r.Context(), input)
 	if err != nil {
-		if err == service.ErrInvalidCredentials {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
+		if errors.Is(err, service.ErrInvalidCredentials) {
+			jsonError(w, "e-mail ou senha inválidos", http.StatusUnauthorized)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		jsonError(w, "erro interno", http.StatusInternalServerError)
 		return
 	}
 
-	// Set HttpOnly cookie
+	// Seta o JWT como Cookie HttpOnly — nunca exposto ao JavaScript
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_token",
-		Value:    token,
+		Value:    result.Token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false, // Set to true in production with HTTPS
-		SameSite: http.SameSiteStrictMode,
+		Secure:   false, // true em produção (HTTPS)
+		SameSite: http.SameSiteLaxMode,
+		Expires:  time.Now().Add(24 * time.Hour),
 	})
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(AuthResponse{
-		Token: token,
-		User: map[string]interface{}{
-			"id":    user.ID,
-			"name":  user.Name,
-			"email": user.Email,
-		},
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"id":    result.User.ID,
+		"name":  result.User.Name,
+		"email": result.User.Email,
 	})
 }
 
+// --- POST /api/auth/logout ---
+
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	// Clear cookie
+	// Zera o cookie com expiração no passado
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_token",
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 	})
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "logged out"})
+	jsonResponse(w, http.StatusOK, map[string]string{"message": "logout realizado"})
 }
 
-func (h *AuthHandler) RegisterRoutes(r chi.Router) {
-	r.Post("/register", h.Register)
-	r.Post("/login", h.Login)
-	r.Post("/logout", h.Logout)
+// --- GET /api/me (rota protegida) ---
+
+func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
+	claims, ok := middleware.GetClaimsFromContext(r.Context())
+	if !ok {
+		jsonError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"id":    claims.UserID,
+		"name":  claims.Name,
+		"email": claims.Email,
+	})
+}
+
+// --- helpers de resposta ---
+
+func jsonResponse(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
+}
+
+func jsonError(w http.ResponseWriter, msg string, status int) {
+	jsonResponse(w, status, map[string]string{"error": msg})
+}
+
+func jsonValidationError(w http.ResponseWriter, err error) {
+	var ve validator.ValidationErrors
+	if !errors.As(err, &ve) {
+		jsonError(w, "dados inválidos", http.StatusBadRequest)
+		return
+	}
+	fields := make(map[string]string, len(ve))
+	for _, fe := range ve {
+		fields[fe.Field()] = fe.Tag()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"error":  "validação falhou",
+		"fields": fields,
+	})
 }
