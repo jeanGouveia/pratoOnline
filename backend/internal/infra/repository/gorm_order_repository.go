@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"gorm.io/gorm"
@@ -51,6 +52,7 @@ func NewGormOrderRepository(db *gorm.DB, productRepo ports.ProductRepository) *G
 // CreateOrder é a operação crítica: persiste pedido + itens + baixa de estoque
 // em uma única transação. Qualquer falha reverte tudo.
 func (r *GormOrderRepository) CreateOrder(ctx context.Context, order *domain.Order, productIngredients map[uint][]domain.ProductIngredient) error {
+	log.Printf("Repository - Iniciando CreateOrder com %d itens", len(order.Items))
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 
 		// 1. Persiste o pedido
@@ -60,15 +62,18 @@ func (r *GormOrderRepository) CreateOrder(ctx context.Context, order *domain.Ord
 			Notes:      order.Notes,
 		}
 		if err := tx.Create(&gOrder).Error; err != nil {
+			log.Printf("Repository - Erro ao criar pedido: %v", err)
 			return fmt.Errorf("CreateOrder: criar pedido: %w", err)
 		}
 		order.ID = gOrder.ID
 		order.CreatedAt = time.Unix(gOrder.CreatedAt, 0)
+		log.Printf("Repository - Pedido criado no banco: ID=%d", order.ID)
 
 		// 2. Para cada item do pedido
 		for i := range order.Items {
 			item := &order.Items[i]
 			item.OrderID = order.ID
+			log.Printf("Repository - Processando item: ProductID=%d, Quantity=%f", item.ProductID, item.Quantity)
 
 			// 2a. Persiste o item
 			gItem := gormOrderItem{
@@ -78,18 +83,22 @@ func (r *GormOrderRepository) CreateOrder(ctx context.Context, order *domain.Ord
 				UnitPrice: item.UnitPrice,
 			}
 			if err := tx.Create(&gItem).Error; err != nil {
+				log.Printf("Repository - Erro ao criar item: %v", err)
 				return fmt.Errorf("CreateOrder: criar item produto_id=%d: %w", item.ProductID, err)
 			}
 			item.ID = gItem.ID
+			log.Printf("Repository - Item criado: ID=%d", item.ID)
 
 			// 2b. Usa os ingredientes pré-carregados (evita chamada dentro da transação)
 			ingredients, ok := productIngredients[item.ProductID]
 			if !ok {
+				log.Printf("Repository - Ingredientes não pré-carregados para produto_id=%d", item.ProductID)
 				return fmt.Errorf("CreateOrder: ingredientes não pré-carregados para produto_id=%d", item.ProductID)
 			}
 
 			if len(ingredients) == 0 {
 				// Produto simples sem ficha técnica: não há ingredientes para baixar
+				log.Printf("Repository - Produto %d não tem ficha técnica (produto simples)", item.ProductID)
 				continue
 			}
 
@@ -97,13 +106,16 @@ func (r *GormOrderRepository) CreateOrder(ctx context.Context, order *domain.Ord
 			// Consumo = quantidade_na_ficha × quantidade_vendida
 			for _, pi := range ingredients {
 				consumo := pi.Quantity * item.Quantity
+				log.Printf("Repository - Baixando estoque: IngredientID=%d, Consumo=%f", pi.IngredientID, consumo)
 				if err := r.productRepo.DecreaseIngredientStock(ctx, pi.IngredientID, consumo, tx); err != nil {
+					log.Printf("Repository - Erro ao baixar estoque: %v", err)
 					// Erro retorna com nome do ingrediente já embutido
 					return fmt.Errorf("CreateOrder: baixa estoque: %w", err)
 				}
 			}
 		}
 
+		log.Printf("Repository - Transação commitada com sucesso")
 		return nil // commit
 	})
 }

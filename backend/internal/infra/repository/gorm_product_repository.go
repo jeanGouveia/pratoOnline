@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"gorm.io/gorm"
@@ -241,7 +242,12 @@ func (r *GormProductRepository) DecreaseIngredientStock(
 	if result.RowsAffected == 0 {
 		// Busca o nome para mensagem de erro amigável
 		var ing gormIngredient
-		r.db.WithContext(ctx).Select("name, stock_quantity").First(&ing, ingredientID)
+		log.Printf("DecreaseIngredientStock - ingredientID recebido: %d", ingredientID)
+		err := r.db.WithContext(ctx).Select("name, stock_quantity").First(&ing, ingredientID).Error
+		log.Printf("DecreaseIngredientStock - erro da query: %v", err)
+		log.Printf("DecreaseIngredientStock - ing.ID: %d", ing.ID)
+		log.Printf("DecreaseIngredientStock - ing.Name: '%s'", ing.Name)
+		log.Printf("DecreaseIngredientStock - ing.StockQuantity: %f", ing.StockQuantity)
 		return fmt.Errorf(
 			"estoque insuficiente para '%s': disponível=%.4f necessário=%.4f",
 			ing.Name, ing.StockQuantity, qty,

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
-  import { api } from '$lib/api/client';
+  import { getOrder } from '$lib/api/order';
   import type { Order } from '$lib/types/order';
   import { ORDER_STATUS_LABEL, ORDER_STATUS_COLOR } from '$lib/types/order';
 
@@ -15,10 +15,23 @@
     loading = true;
     error = '';
     try {
-      const res = await api.get(`/orders/${orderId}`);
-      if (!res.ok) throw new Error(`Erro ${res.status}`);
-      order = await res.json();
+      console.log('OrderDetail - Carregando pedido ID:', orderId);
+      order = await getOrder(orderId);
+      console.log('OrderDetail - Pedido carregado:', order);
+      console.log('OrderDetail - order.id:', order.id);
+      console.log('OrderDetail - order.ID:', order.ID);
+      console.log('OrderDetail - order.status:', order.status);
+      console.log('OrderDetail - order.Status:', order.Status);
+      console.log('OrderDetail - order.items:', order.items);
+      console.log('OrderDetail - order.Items:', order.Items);
+      if (order.items) {
+        console.log('OrderDetail - Primeiro item:', order.items[0]);
+        console.log('OrderDetail - item.product_name:', order.items[0].product_name);
+        console.log('OrderDetail - item.Product:', order.items[0].Product);
+      }
     } catch (e: any) {
+      console.error('OrderDetail - Erro ao carregar pedido:', e);
+      console.error('OrderDetail - Stack trace:', e.stack);
       error = e?.message ?? 'Erro ao carregar pedido.';
     } finally {
       loading = false;

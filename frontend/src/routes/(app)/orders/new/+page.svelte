@@ -82,10 +82,17 @@
       notes: notes.trim() || undefined,
       items: cart.map((c) => ({ product_id: c.product.ID, quantity: c.quantity })),
     };
+    console.log('Frontend - Payload enviado:', payload);
     try {
       const order = await createOrder(payload);
+      console.log('Frontend - Pedido criado:', order);
+      console.log('Frontend - order.ID:', order.ID);
+      console.log('Frontend - order.id:', order.id);
+      console.log('Frontend - Tentando goto para:', `/orders/${order.ID}`);
       goto(`/orders/${order.ID}`);
     } catch (e: any) {
+      console.error('Frontend - Erro ao criar pedido:', e);
+      console.error('Frontend - Stack trace:', e.stack);
       error = e?.message ?? 'Erro ao criar pedido.';
       submitting = false;
     }

@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/jeanGouveia/pratoOnline/backend/internal/service"
@@ -23,16 +24,19 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "body inválido", http.StatusBadRequest)
 		return
 	}
+	log.Printf("Handler - Payload recebido: %+v", in)
 	if err := validate.Struct(in); err != nil {
 		jsonValidationError(w, err)
 		return
 	}
 	order, err := h.svc.CreateOrder(r.Context(), in)
 	if err != nil {
+		log.Printf("Handler - Erro ao criar pedido: %v", err)
 		// Erros de estoque insuficiente chegam aqui com mensagem amigável
 		jsonError(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
+	log.Printf("Handler - Pedido criado com sucesso: ID=%d", order.ID)
 	jsonResponse(w, http.StatusCreated, order)
 }
 

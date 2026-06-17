@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 
 	"github.com/jeanGouveia/pratoOnline/backend/internal/domain"
 	"github.com/jeanGouveia/pratoOnline/backend/internal/ports"
@@ -40,6 +41,7 @@ type UpdateOrderStatusInput struct {
 // ── Operações ────────────────────────────────────────────────────────────────
 
 func (s *OrderService) CreateOrder(ctx context.Context, in CreateOrderInput) (*domain.Order, error) {
+	log.Printf("Service - Iniciando CreateOrder com %d itens", len(in.Items))
 	order := &domain.Order{
 		Status: domain.OrderStatusPending,
 		Notes:  in.Notes,
@@ -68,6 +70,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, in CreateOrderInput) (*d
 
 	order.Items = items
 	order.TotalPrice = total
+	log.Printf("Service - Pedido montado: TotalPrice=%f, Items=%d", order.TotalPrice, len(order.Items))
 
 	// Pré-carrega as fichas técnicas antes da transação para evitar context deadline
 	productIngredients := make(map[uint][]domain.ProductIngredient)
@@ -77,14 +80,17 @@ func (s *OrderService) CreateOrder(ctx context.Context, in CreateOrderInput) (*d
 			return nil, fmt.Errorf("OrderService.CreateOrder: ficha técnica produto_id=%d: %w", itemIn.ProductID, err)
 		}
 		productIngredients[itemIn.ProductID] = ingredients
+		log.Printf("Service - Produto %d tem %d ingredientes na ficha técnica", itemIn.ProductID, len(ingredients))
 	}
 
 	// CreateOrder já executa a baixa de estoque em transação
 	// Passamos as fichas técnicas pré-carregadas para evitar chamadas dentro da transação
 	if err := s.orderRepo.CreateOrder(ctx, order, productIngredients); err != nil {
+		log.Printf("Service - Erro ao criar pedido no repository: %v", err)
 		return nil, fmt.Errorf("OrderService.CreateOrder: %w", err)
 	}
 
+	log.Printf("Service - Pedido criado com sucesso: ID=%d", order.ID)
 	return order, nil
 }
 
