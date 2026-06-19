@@ -8,6 +8,7 @@ type Ingredient struct {
 	Unit          string  // "kg", "L", "un", "g", "ml"
 	StockQuantity float64 // quantidade atual em estoque
 	MinStock      float64 // alerta de estoque mínimo (opcional)
+	Active        bool    // soft delete flag
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }

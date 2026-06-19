@@ -87,6 +87,34 @@ func (h *ProductHandler) DeleteProduct(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]string{"message": "produto removido"})
 }
 
+// PUT /api/products/{id}
+func (h *ProductHandler) UpdateProduct(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r, "id")
+	if err != nil {
+		jsonError(w, "id inválido", http.StatusBadRequest)
+		return
+	}
+	var in service.UpdateProductInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		jsonError(w, "body inválido", http.StatusBadRequest)
+		return
+	}
+	if err := validate.Struct(in); err != nil {
+		jsonValidationError(w, err)
+		return
+	}
+	p, err := h.svc.UpdateProduct(r.Context(), id, in)
+	if err != nil {
+		if errors.Is(err, service.ErrProductNotFound) {
+			jsonError(w, "produto não encontrado", http.StatusNotFound)
+			return
+		}
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, p)
+}
+
 // ── Ingrediente ──────────────────────────────────────────────────────────────
 
 // POST /api/ingredients
@@ -118,6 +146,25 @@ func (h *ProductHandler) ListIngredients(w http.ResponseWriter, r *http.Request)
 	jsonResponse(w, http.StatusOK, ingredients)
 }
 
+// GET /api/ingredients/{id}
+func (h *ProductHandler) GetIngredient(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r, "id")
+	if err != nil {
+		jsonError(w, "id inválido", http.StatusBadRequest)
+		return
+	}
+	i, err := h.svc.GetIngredient(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, service.ErrIngredientNotFound) {
+			jsonError(w, "ingrediente não encontrado", http.StatusNotFound)
+			return
+		}
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, i)
+}
+
 // PATCH /api/ingredients/{id}/stock
 func (h *ProductHandler) UpdateIngredientStock(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r, "id")
@@ -144,6 +191,52 @@ func (h *ProductHandler) UpdateIngredientStock(w http.ResponseWriter, r *http.Re
 		return
 	}
 	jsonResponse(w, http.StatusOK, i)
+}
+
+// PUT /api/ingredients/{id}
+func (h *ProductHandler) UpdateIngredient(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r, "id")
+	if err != nil {
+		jsonError(w, "id inválido", http.StatusBadRequest)
+		return
+	}
+	var in service.UpdateIngredientInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		jsonError(w, "body inválido", http.StatusBadRequest)
+		return
+	}
+	if err := validate.Struct(in); err != nil {
+		jsonValidationError(w, err)
+		return
+	}
+	i, err := h.svc.UpdateIngredient(r.Context(), id, in)
+	if err != nil {
+		if errors.Is(err, service.ErrIngredientNotFound) {
+			jsonError(w, "ingrediente não encontrado", http.StatusNotFound)
+			return
+		}
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, i)
+}
+
+// DELETE /api/ingredients/{id}
+func (h *ProductHandler) DeleteIngredient(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r, "id")
+	if err != nil {
+		jsonError(w, "id inválido", http.StatusBadRequest)
+		return
+	}
+	if err := h.svc.DeleteIngredient(r.Context(), id); err != nil {
+		if errors.Is(err, service.ErrIngredientNotFound) {
+			jsonError(w, "ingrediente não encontrado", http.StatusNotFound)
+			return
+		}
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]string{"message": "ingrediente removido"})
 }
 
 // ── Ficha técnica ────────────────────────────────────────────────────────────

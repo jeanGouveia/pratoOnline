@@ -35,7 +35,7 @@ type CreateOrderInput struct {
 }
 
 type UpdateOrderStatusInput struct {
-	Status string `json:"status" validate:"required,oneof=pending confirmed cancelled"`
+	Status string `json:"status" validate:"required,oneof=pending confirmed preparing ready delivered cancelled"`
 }
 
 // ── Operações ────────────────────────────────────────────────────────────────
@@ -122,10 +122,40 @@ func (s *OrderService) UpdateOrderStatus(ctx context.Context, id uint, in Update
 		return nil, ErrOrderNotFound
 	}
 
-	status := domain.OrderStatus(in.Status)
-	if err := s.orderRepo.UpdateOrderStatus(ctx, id, status); err != nil {
+	// Validar transição de status
+	newStatus := domain.OrderStatus(in.Status)
+	if !isValidTransition(order.Status, newStatus) {
+		return nil, fmt.Errorf("transição inválida: %s → %s", order.Status, newStatus)
+	}
+
+	if err := s.orderRepo.UpdateOrderStatus(ctx, id, newStatus); err != nil {
 		return nil, fmt.Errorf("OrderService.UpdateOrderStatus: %w", err)
 	}
-	order.Status = status
+	order.Status = newStatus
 	return order, nil
+}
+
+// isValidTransition valida se a transição entre status é permitida
+func isValidTransition(current, new domain.OrderStatus) bool {
+	// Transições permitidas
+	transitions := map[domain.OrderStatus][]domain.OrderStatus{
+		domain.OrderStatusPending:   {domain.OrderStatusConfirmed, domain.OrderStatusCancelled},
+		domain.OrderStatusConfirmed: {domain.OrderStatusPreparing, domain.OrderStatusCancelled},
+		domain.OrderStatusPreparing: {domain.OrderStatusReady, domain.OrderStatusCancelled},
+		domain.OrderStatusReady:     {domain.OrderStatusDelivered, domain.OrderStatusCancelled},
+		domain.OrderStatusDelivered: {}, // status final, sem transições
+		domain.OrderStatusCancelled: {}, // status final, sem transições
+	}
+
+	allowed, exists := transitions[current]
+	if !exists {
+		return false
+	}
+
+	for _, status := range allowed {
+		if status == new {
+			return true
+		}
+	}
+	return false
 }

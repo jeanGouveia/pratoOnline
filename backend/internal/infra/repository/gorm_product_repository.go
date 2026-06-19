@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	"gorm.io/gorm"
@@ -22,8 +21,8 @@ type gormProduct struct {
 	Price       float64 `gorm:"not null;default:0"`
 	IsComposto  bool    `gorm:"not null;default:false"`
 	Active      bool    `gorm:"not null;default:true"`
-	CreatedAt   int64  `gorm:"autoCreateTime"`
-	UpdatedAt   int64  `gorm:"autoUpdateTime"`
+	CreatedAt   int64   `gorm:"autoCreateTime"`
+	UpdatedAt   int64   `gorm:"autoUpdateTime"`
 }
 
 func (gormProduct) TableName() string { return "products" }
@@ -34,6 +33,7 @@ type gormIngredient struct {
 	Unit          string  `gorm:"not null;default:'un'"`
 	StockQuantity float64 `gorm:"not null;default:0"`
 	MinStock      float64 `gorm:"not null;default:0"`
+	Active        bool    `gorm:"not null;default:true"`
 	CreatedAt     int64   `gorm:"autoCreateTime"`
 	UpdatedAt     int64   `gorm:"autoUpdateTime"`
 }
@@ -126,11 +126,13 @@ func (r *GormProductRepository) CreateIngredient(ctx context.Context, i *domain.
 	m := gormIngredient{
 		Name: i.Name, Unit: i.Unit,
 		StockQuantity: i.StockQuantity, MinStock: i.MinStock,
+		Active: true,
 	}
 	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
 		return fmt.Errorf("CreateIngredient: %w", err)
 	}
 	i.ID = m.ID
+	i.Active = m.Active
 	i.CreatedAt = time.Unix(m.CreatedAt, 0)
 	i.UpdatedAt = time.Unix(m.UpdatedAt, 0)
 	return nil
@@ -150,7 +152,7 @@ func (r *GormProductRepository) FindIngredientByID(ctx context.Context, id uint)
 
 func (r *GormProductRepository) ListIngredients(ctx context.Context) ([]domain.Ingredient, error) {
 	var ms []gormIngredient
-	if err := r.db.WithContext(ctx).Find(&ms).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("active = ?", true).Find(&ms).Error; err != nil {
 		return nil, fmt.Errorf("ListIngredients: %w", err)
 	}
 	out := make([]domain.Ingredient, len(ms))
@@ -164,9 +166,19 @@ func (r *GormProductRepository) UpdateIngredient(ctx context.Context, i *domain.
 	m := gormIngredient{
 		ID: i.ID, Name: i.Name, Unit: i.Unit,
 		StockQuantity: i.StockQuantity, MinStock: i.MinStock,
+		Active: i.Active,
 	}
 	if err := r.db.WithContext(ctx).Save(&m).Error; err != nil {
 		return fmt.Errorf("UpdateIngredient: %w", err)
+	}
+	return nil
+}
+
+func (r *GormProductRepository) DeleteIngredient(ctx context.Context, id uint) error {
+	// Soft delete: marca Active=false
+	if err := r.db.WithContext(ctx).Model(&gormIngredient{}).
+		Where("id = ?", id).Update("active", false).Error; err != nil {
+		return fmt.Errorf("DeleteIngredient: %w", err)
 	}
 	return nil
 }
@@ -221,6 +233,7 @@ func (r *GormProductRepository) GetProductIngredients(
 
 func (r *GormProductRepository) DecreaseIngredientStock(
 	ctx context.Context, ingredientID uint, qty float64, txDB *gorm.DB,
+	ingredientName string, currentStock float64,
 ) error {
 	// Usa o DB da transação se fornecido, senão usa o DB padrão
 	db := r.db
@@ -240,17 +253,9 @@ func (r *GormProductRepository) DecreaseIngredientStock(
 		return fmt.Errorf("DecreaseIngredientStock id=%d: %w", ingredientID, result.Error)
 	}
 	if result.RowsAffected == 0 {
-		// Busca o nome para mensagem de erro amigável
-		var ing gormIngredient
-		log.Printf("DecreaseIngredientStock - ingredientID recebido: %d", ingredientID)
-		err := r.db.WithContext(ctx).Select("name, stock_quantity").First(&ing, ingredientID).Error
-		log.Printf("DecreaseIngredientStock - erro da query: %v", err)
-		log.Printf("DecreaseIngredientStock - ing.ID: %d", ing.ID)
-		log.Printf("DecreaseIngredientStock - ing.Name: '%s'", ing.Name)
-		log.Printf("DecreaseIngredientStock - ing.StockQuantity: %f", ing.StockQuantity)
 		return fmt.Errorf(
 			"estoque insuficiente para '%s': disponível=%.4f necessário=%.4f",
-			ing.Name, ing.StockQuantity, qty,
+			ingredientName, currentStock, qty,
 		)
 	}
 	return nil
@@ -270,6 +275,7 @@ func ingredientToDomain(m *gormIngredient) *domain.Ingredient {
 	return &domain.Ingredient{
 		ID: m.ID, Name: m.Name, Unit: m.Unit,
 		StockQuantity: m.StockQuantity, MinStock: m.MinStock,
+		Active:    m.Active,
 		CreatedAt: time.Unix(m.CreatedAt, 0), UpdatedAt: time.Unix(m.UpdatedAt, 0),
 	}
 }

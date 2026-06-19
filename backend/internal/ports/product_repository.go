@@ -21,6 +21,7 @@ type ProductRepository interface {
 	FindIngredientByID(ctx context.Context, id uint) (*domain.Ingredient, error)
 	ListIngredients(ctx context.Context) ([]domain.Ingredient, error)
 	UpdateIngredient(ctx context.Context, i *domain.Ingredient) error
+	DeleteIngredient(ctx context.Context, id uint) error
 
 	// Ficha técnica (produto ↔ ingredientes)
 	SetProductIngredients(ctx context.Context, productID uint, items []domain.ProductIngredient) error
@@ -28,5 +29,5 @@ type ProductRepository interface {
 
 	// Estoque — chamado dentro de transação pelo OrderRepository
 	// Aceita um DB opcional para transações
-	DecreaseIngredientStock(ctx context.Context, ingredientID uint, qty float64, txDB *gorm.DB) error
+	DecreaseIngredientStock(ctx context.Context, ingredientID uint, qty float64, txDB *gorm.DB, ingredientName string, currentStock float64) error
 }

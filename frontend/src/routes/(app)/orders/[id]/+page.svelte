@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
-  import { getOrder } from '$lib/api/order';
+  import { getOrder, updateOrderStatus } from '$lib/api/order';
   import type { Order } from '$lib/types/order';
   import { ORDER_STATUS_LABEL, ORDER_STATUS_COLOR } from '$lib/types/order';
 
@@ -10,28 +10,15 @@
   let order: Order | null = $state(null);
   let loading = $state(true);
   let error = $state('');
+  let updating = $state(false);
+  let updateError = $state('');
 
   onMount(async () => {
     loading = true;
     error = '';
     try {
-      console.log('OrderDetail - Carregando pedido ID:', orderId);
       order = await getOrder(orderId);
-      console.log('OrderDetail - Pedido carregado:', order);
-      console.log('OrderDetail - order.id:', order.id);
-      console.log('OrderDetail - order.ID:', order.ID);
-      console.log('OrderDetail - order.status:', order.status);
-      console.log('OrderDetail - order.Status:', order.Status);
-      console.log('OrderDetail - order.items:', order.items);
-      console.log('OrderDetail - order.Items:', order.Items);
-      if (order.items) {
-        console.log('OrderDetail - Primeiro item:', order.items[0]);
-        console.log('OrderDetail - item.product_name:', order.items[0].product_name);
-        console.log('OrderDetail - item.Product:', order.items[0].Product);
-      }
     } catch (e: any) {
-      console.error('OrderDetail - Erro ao carregar pedido:', e);
-      console.error('OrderDetail - Stack trace:', e.stack);
       error = e?.message ?? 'Erro ao carregar pedido.';
     } finally {
       loading = false;
@@ -56,9 +43,52 @@
   type ProgressStatus = typeof STATUS_STEPS[number];
 
   const currentStepIndex = $derived(
-    order ? STATUS_STEPS.indexOf(order.status as ProgressStatus) : -1
+    order ? STATUS_STEPS.indexOf(order.Status as ProgressStatus) : -1
   );
-  const isCancelled = $derived(order?.status === 'cancelled');
+  const isCancelled = $derived(order?.Status === 'cancelled');
+
+  // Transições permitidas
+  const transitions: Record<string, string[]> = {
+    pending: ['confirmed', 'cancelled'],
+    confirmed: ['preparing', 'cancelled'],
+    preparing: ['ready', 'cancelled'],
+    ready: ['delivered', 'cancelled'],
+    delivered: [],
+    cancelled: []
+  };
+
+  const nextStatus = $derived(
+    order && transitions[order.Status]?.length > 0
+      ? transitions[order.Status][0]
+      : null
+  );
+
+  const canCancel = $derived(
+    order && transitions[order.Status]?.includes('cancelled')
+  );
+
+  async function advanceStatus() {
+    if (!order || !nextStatus) return;
+    await changeStatus(nextStatus);
+  }
+
+  async function cancelOrder() {
+    if (!order) return;
+    await changeStatus('cancelled');
+  }
+
+  async function changeStatus(newStatus: string) {
+    updating = true;
+    updateError = '';
+    try {
+      const updated = await updateOrderStatus(orderId, newStatus);
+      order = updated;
+    } catch (e: any) {
+      updateError = e?.message ?? 'Erro ao atualizar status.';
+    } finally {
+      updating = false;
+    }
+  }
 </script>
 
 <div class="page-wrapper">
@@ -79,12 +109,12 @@
   {:else if order}
     <header class="order-header">
       <div class="order-meta">
-        <h1 class="order-title">Pedido <span class="order-id-num">#{order.id}</span></h1>
-        <span class="status-badge {ORDER_STATUS_COLOR[order.status]}">
-          {ORDER_STATUS_LABEL[order.status]}
+        <h1 class="order-title">Pedido <span class="order-id-num">#{order.ID}</span></h1>
+        <span class="status-badge {ORDER_STATUS_COLOR[order.Status]}">
+          {ORDER_STATUS_LABEL[order.Status]}
         </span>
       </div>
-      <p class="order-date">{formatDate(order.created_at)}</p>
+      <p class="order-date">{formatDate(order.CreatedAt)}</p>
     </header>
 
     <!-- Barra de progresso (oculta se cancelado) -->
@@ -109,7 +139,7 @@
       <section class="order-section">
         <h2 class="section-title">Itens do Pedido</h2>
 
-        {#if !order.items || order.items.length === 0}
+        {#if !order.Items || order.Items.length === 0}
           <p class="empty-note">Nenhum item registrado neste pedido.</p>
         {:else}
           <div class="items-table-wrapper">
@@ -123,16 +153,16 @@
                 </tr>
               </thead>
               <tbody>
-                {#each order.items as item}
+                {#each order.Items as item}
                   <tr>
                     <td class="item-name">
-                      {item.product_name ?? `Produto #${item.product_id}`}
+                      {item.Product?.Name ?? `Produto #${item.ProductID}`}
                     </td>
-                    <td class="text-right">{item.quantity}</td>
-                    <td class="text-right muted">{formatPrice(item.unit_price)}</td>
+                    <td class="text-right">{item.Quantity}</td>
+                    <td class="text-right muted">{formatPrice(item.UnitPrice)}</td>
                     <td class="text-right bold">
-                      {item.unit_price != null
-                        ? formatPrice(item.unit_price * item.quantity)
+                      {item.UnitPrice != null
+                        ? formatPrice(item.UnitPrice * item.Quantity)
                         : '—'}
                     </td>
                   </tr>
@@ -141,7 +171,7 @@
               <tfoot>
                 <tr>
                   <td colspan="3" class="total-label">Total do Pedido</td>
-                  <td class="text-right total-value">{formatPrice(order.total)}</td>
+                  <td class="text-right total-value">{formatPrice(order.TotalPrice)}</td>
                 </tr>
               </tfoot>
             </table>
@@ -156,37 +186,65 @@
           <dl class="info-list">
             <dt>Status atual</dt>
             <dd>
-              <span class="status-badge {ORDER_STATUS_COLOR[order.status]}">
-                {ORDER_STATUS_LABEL[order.status]}
+              <span class="status-badge {ORDER_STATUS_COLOR[order.Status]}">
+                {ORDER_STATUS_LABEL[order.Status]}
               </span>
             </dd>
 
             <dt>Criado em</dt>
-            <dd>{formatDate(order.created_at)}</dd>
+            <dd>{formatDate(order.CreatedAt)}</dd>
 
-            {#if order.updated_at && order.updated_at !== order.created_at}
+            {#if order.UpdatedAt && order.UpdatedAt !== order.CreatedAt}
               <dt>Atualizado em</dt>
-              <dd>{formatDate(order.updated_at)}</dd>
+              <dd>{formatDate(order.UpdatedAt)}</dd>
             {/if}
 
-            {#if order.notes}
+            {#if order.Notes}
               <dt>Observações</dt>
-              <dd class="notes">{order.notes}</dd>
+              <dd class="notes">{order.Notes}</dd>
             {/if}
 
             <dt>Total</dt>
-            <dd class="total-dd">{formatPrice(order.total)}</dd>
+            <dd class="total-dd">{formatPrice(order.TotalPrice)}</dd>
           </dl>
         </div>
 
         <!-- Nota sobre estoque -->
-        {#if order.status === 'confirmed' || order.status === 'preparing' || order.status === 'ready' || order.status === 'delivered'}
+        {#if order.Status === 'confirmed' || order.Status === 'preparing' || order.Status === 'ready' || order.Status === 'delivered'}
           <div class="stock-note">
             <span class="stock-icon">📦</span>
             <p>
               A baixa de estoque dos ingredientes foi realizada automaticamente
               ao confirmar este pedido.
             </p>
+          </div>
+        {/if}
+
+        <!-- Ações de status -->
+        {#if nextStatus || canCancel}
+          <div class="status-actions-card">
+            <h3 class="info-title">Ações</h3>
+            {#if updateError}
+              <p class="form-error">{updateError}</p>
+            {/if}
+            {#if nextStatus}
+              <button
+                class="btn btn-primary btn-full"
+                onclick={advanceStatus}
+                disabled={updating}
+              >
+                {updating ? 'Atualizando…' : `Avançar para ${ORDER_STATUS_LABEL[nextStatus]}`}
+              </button>
+            {/if}
+            {#if canCancel}
+              <button
+                class="btn btn-danger btn-full"
+                onclick={cancelOrder}
+                disabled={updating}
+              >
+                {updating ? 'Cancelando…' : 'Cancelar Pedido'}
+              </button>
+            {/if}
           </div>
         {/if}
 
@@ -294,6 +352,9 @@
   .stock-icon    { flex-shrink: 0; font-size: 1rem; }
   .stock-note p  { margin: 0; }
 
+  .status-actions-card { background: var(--color-surface, #fff); border: 1px solid var(--color-border, #e5e7eb); border-radius: 0.75rem; padding: 1.25rem; }
+  .form-error     { color: #b91c1c; font-size: 0.8rem; background: #fef2f2; padding: 0.5rem 0.75rem; border-radius: 0.4rem; border: 1px solid #fca5a5; margin-bottom: 0.75rem; }
+
   .aside-actions { display: flex; flex-direction: column; gap: 0.5rem; }
 
   /* Status badges */
@@ -312,10 +373,14 @@
 
   /* Botões */
   .btn           { display: inline-flex; align-items: center; justify-content: center; padding: 0.55rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; cursor: pointer; border: none; transition: background 0.15s; text-decoration: none; }
+  .btn:disabled  { opacity: 0.55; cursor: not-allowed; }
   .btn-primary   { background: var(--color-primary, #e85d04); color: #fff; }
-  .btn-primary:hover { background: var(--color-primary-dark, #c84e00); }
+  .btn-primary:hover:not(:disabled) { background: var(--color-primary-dark, #c84e00); }
   .btn-ghost     { background: transparent; color: var(--color-primary, #e85d04); border: 1.5px solid var(--color-primary, #e85d04); }
   .btn-ghost:hover { background: rgba(232,93,4,0.06); }
+  .btn-danger    { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+  .btn-danger:hover:not(:disabled) { background: #fecaca; }
+  .btn-full      { width: 100%; }
   .btn-sm        { padding: 0.35rem 0.75rem; font-size: 0.8rem; }
 
   @media (max-width: 700px) {

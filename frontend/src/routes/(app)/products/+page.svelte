@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getProducts, createProduct, getIngredients, createIngredient } from '$lib/api/product';
+  import { getProducts, createProduct, updateProduct, deleteProduct, getIngredients, createIngredient, updateIngredient, deleteIngredient, updateIngredientStock } from '$lib/api/product';
   import type { Product } from '$lib/types/product';
   import type { Ingredient } from '$lib/types/ingredient';
 
@@ -11,15 +11,26 @@
 
   // Modal novo produto
   let showProductModal = $state(false);
+  let productEditMode = $state(false);
+  let productEditId = $state<number | null>(null);
   let productForm = $state({ Name: '', Description: '', Price: 0, IsComposto: false, Active: true });
   let productSaving = $state(false);
   let productError = $state('');
 
   // Modal novo ingrediente
   let showIngModal = $state(false);
+  let ingEditMode = $state(false);
+  let ingEditId = $state<number | null>(null);
   let ingForm = $state({ Name: '', Unit: '', StockQuantity: 0, MinStock: 0 });
   let ingSaving = $state(false);
   let ingError = $state('');
+
+  // Modal ajustar estoque
+  let showStockModal = $state(false);
+  let stockEditId = $state<number | null>(null);
+  let stockForm = $state({ Quantity: 0 });
+  let stockSaving = $state(false);
+  let stockError = $state('');
 
   onMount(async () => {
     await loadAll();
@@ -41,16 +52,26 @@
     productSaving = true;
     productError = '';
     try {
-      const created = await createProduct({
+      const payload = {
         name: productForm.Name,
         description: productForm.Description,
         price: Number(productForm.Price),
         is_composto: productForm.IsComposto,
         active: productForm.Active,
-      });
-      products = [...products, created];
+      };
+
+      if (productEditMode && productEditId) {
+        const updated = await updateProduct(productEditId, payload);
+        products = products.map(p => p.ID === productEditId ? updated : p);
+      } else {
+        const created = await createProduct(payload);
+        products = [...products, created];
+      }
+
       showProductModal = false;
       productForm = { Name: '', Description: '', Price: 0, IsComposto: false, Active: true };
+      productEditMode = false;
+      productEditId = null;
     } catch (e: any) {
       productError = e?.message ?? 'Erro ao salvar produto.';
     } finally {
@@ -58,23 +79,116 @@
     }
   }
 
+  function openProductEdit(product: Product) {
+    productEditMode = true;
+    productEditId = product.ID;
+    productForm = {
+      Name: product.Name,
+      Description: product.Description,
+      Price: product.Price,
+      IsComposto: product.IsComposto,
+      Active: product.Active,
+    };
+    showProductModal = true;
+  }
+
+  function openProductCreate() {
+    productEditMode = false;
+    productEditId = null;
+    productForm = { Name: '', Description: '', Price: 0, IsComposto: false, Active: true };
+    showProductModal = true;
+  }
+
+  async function deleteProductById(id: number) {
+    if (!confirm('Tem certeza que deseja excluir este produto?')) return;
+    try {
+      await deleteProduct(id);
+      products = products.filter(p => p.ID !== id);
+    } catch (e: any) {
+      error = e?.message ?? 'Erro ao excluir produto.';
+    }
+  }
+
   async function saveIngredient() {
     ingSaving = true;
     ingError = '';
     try {
-      const created = await createIngredient({
+      const payload = {
         name: ingForm.Name,
         unit: ingForm.Unit,
         stock_quantity: Number(ingForm.StockQuantity),
         min_stock: Number(ingForm.MinStock),
-      });
-      ingredients = [...ingredients, created];
+      };
+
+      if (ingEditMode && ingEditId) {
+        const updated = await updateIngredient(ingEditId, payload);
+        ingredients = ingredients.map(i => i.ID === ingEditId ? updated : i);
+      } else {
+        const created = await createIngredient(payload);
+        ingredients = [...ingredients, created];
+      }
+
       showIngModal = false;
       ingForm = { Name: '', Unit: '', StockQuantity: 0, MinStock: 0 };
+      ingEditMode = false;
+      ingEditId = null;
     } catch (e: any) {
       ingError = e?.message ?? 'Erro ao salvar ingrediente.';
     } finally {
       ingSaving = false;
+    }
+  }
+
+  function openIngredientEdit(ingredient: Ingredient) {
+    ingEditMode = true;
+    ingEditId = ingredient.ID;
+    ingForm = {
+      Name: ingredient.Name,
+      Unit: ingredient.Unit,
+      StockQuantity: ingredient.StockQuantity,
+      MinStock: ingredient.MinStock,
+    };
+    showIngModal = true;
+  }
+
+  function openIngredientCreate() {
+    ingEditMode = false;
+    ingEditId = null;
+    ingForm = { Name: '', Unit: '', StockQuantity: 0, MinStock: 0 };
+    showIngModal = true;
+  }
+
+  async function deleteIngredientById(id: number) {
+    if (!confirm('Tem certeza que deseja excluir este ingrediente?')) return;
+    try {
+      await deleteIngredient(id);
+      ingredients = ingredients.filter(i => i.ID !== id);
+    } catch (e: any) {
+      error = e?.message ?? 'Erro ao excluir ingrediente.';
+    }
+  }
+
+  function openStockModal(ingredient: Ingredient) {
+    stockEditId = ingredient.ID;
+    stockForm = { Quantity: ingredient.StockQuantity };
+    showStockModal = true;
+  }
+
+  async function saveStock() {
+    stockSaving = true;
+    stockError = '';
+    try {
+      if (stockEditId) {
+        const updated = await updateIngredientStock(stockEditId, Number(stockForm.Quantity));
+        ingredients = ingredients.map(i => i.ID === stockEditId ? updated : i);
+      }
+      showStockModal = false;
+      stockForm = { Quantity: 0 };
+      stockEditId = null;
+    } catch (e: any) {
+      stockError = e?.message ?? 'Erro ao ajustar estoque.';
+    } finally {
+      stockSaving = false;
     }
   }
 
@@ -86,14 +200,14 @@
 <div class="page-wrapper">
   <header class="page-header">
     <div>
-      <h1 class="page-title">Cardápio</h1>
+      <h1 class="page-title">Produtos</h1>
       <p class="page-subtitle">Gerencie produtos e ingredientes do seu restaurante</p>
     </div>
     <div class="header-actions">
-      <button class="btn btn-secondary" onclick={() => (showIngModal = true)}>
+      <button class="btn btn-secondary" onclick={openIngredientCreate}>
         + Ingrediente
       </button>
-      <button class="btn btn-primary" onclick={() => (showProductModal = true)}>
+      <button class="btn btn-primary" onclick={openProductCreate}>
         + Produto
       </button>
     </div>
@@ -123,9 +237,9 @@
       {:else}
         <div class="card-grid">
           {#each products as product}
-            <a href="/products/{product.ID}" class="product-card">
+            <div class="product-card">
               <div class="product-card-header">
-                <span class="product-name">{product.Name}</span>
+                <a href="/products/{product.ID}" class="product-name">{product.Name}</a>
                 <span class="product-price">{formatPrice(product.Price)}</span>
               </div>
               {#if product.Description}
@@ -139,7 +253,11 @@
                   {product.Active ? 'Ativo' : 'Inativo'}
                 </span>
               </div>
-            </a>
+              <div class="card-actions">
+                <button class="btn btn-sm btn-ghost" onclick={() => openProductEdit(product)}>Editar</button>
+                <button class="btn btn-sm btn-danger" onclick={() => deleteProductById(product.ID)}>Excluir</button>
+              </div>
+            </div>
           {/each}
         </div>
       {/if}
@@ -165,6 +283,7 @@
                 <th>Unidade</th>
                 <th>Estoque</th>
                 <th>Estoque Mínimo</th>
+                <th>Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -175,6 +294,11 @@
                   <td>{ing.Unit}</td>
                   <td>{ing.StockQuantity}</td>
                   <td>{ing.MinStock}</td>
+                  <td>
+                    <button class="btn btn-sm btn-ghost" onclick={() => openIngredientEdit(ing)}>Editar</button>
+                    <button class="btn btn-sm btn-ghost" onclick={() => openStockModal(ing)}>Ajustar</button>
+                    <button class="btn btn-sm btn-danger" onclick={() => deleteIngredientById(ing.ID)}>Excluir</button>
+                  </td>
                 </tr>
               {/each}
             </tbody>
@@ -189,7 +313,7 @@
 {#if showProductModal}
   <div class="modal-overlay" onclick={() => (showProductModal = false)}>
     <div class="modal" onclick={(e) => e.stopPropagation()}>
-      <h2 class="modal-title">Novo Produto</h2>
+      <h2 class="modal-title">{productEditMode ? 'Editar Produto' : 'Novo Produto'}</h2>
 
       {#if productError}
         <p class="form-error">{productError}</p>
@@ -225,7 +349,7 @@
       <div class="modal-actions">
         <button class="btn btn-ghost" onclick={() => (showProductModal = false)}>Cancelar</button>
         <button class="btn btn-primary" onclick={saveProduct} disabled={productSaving || !productForm.Name}>
-          {productSaving ? 'Salvando…' : 'Criar Produto'}
+          {productSaving ? 'Salvando…' : (productEditMode ? 'Atualizar Produto' : 'Criar Produto')}
         </button>
       </div>
     </div>
@@ -236,7 +360,7 @@
 {#if showIngModal}
   <div class="modal-overlay" onclick={() => (showIngModal = false)}>
     <div class="modal" onclick={(e) => e.stopPropagation()}>
-      <h2 class="modal-title">Novo Ingrediente</h2>
+      <h2 class="modal-title">{ingEditMode ? 'Editar Ingrediente' : 'Novo Ingrediente'}</h2>
 
       {#if ingError}
         <p class="form-error">{ingError}</p>
@@ -264,7 +388,32 @@
       <div class="modal-actions">
         <button class="btn btn-ghost" onclick={() => (showIngModal = false)}>Cancelar</button>
         <button class="btn btn-primary" onclick={saveIngredient} disabled={ingSaving || !ingForm.Name || !ingForm.Unit}>
-          {ingSaving ? 'Salvando…' : 'Criar Ingrediente'}
+          {ingSaving ? 'Salvando…' : (ingEditMode ? 'Atualizar Ingrediente' : 'Criar Ingrediente')}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Modal: Ajustar Estoque -->
+{#if showStockModal}
+  <div class="modal-overlay" onclick={() => (showStockModal = false)}>
+    <div class="modal" onclick={(e) => e.stopPropagation()}>
+      <h2 class="modal-title">Ajustar Estoque</h2>
+
+      {#if stockError}
+        <p class="form-error">{stockError}</p>
+      {/if}
+
+      <div class="form-group">
+        <label for="s-quantity">Quantidade *</label>
+        <input id="s-quantity" type="number" min="0" step="0.01" bind:value={stockForm.Quantity} />
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick={() => (showStockModal = false)}>Cancelar</button>
+        <button class="btn btn-primary" onclick={saveStock} disabled={stockSaving || stockForm.Quantity < 0}>
+          {stockSaving ? 'Salvando…' : 'Ajustar Estoque'}
         </button>
       </div>
     </div>
@@ -284,13 +433,15 @@
 
   /* Cards de produto */
   .card-grid      { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
-  .product-card   { display: block; background: var(--color-surface, #fff); border: 1px solid var(--color-border, #e5e7eb); border-radius: 0.75rem; padding: 1.25rem; text-decoration: none; color: inherit; transition: box-shadow 0.15s, border-color 0.15s; }
+  .product-card   { background: var(--color-surface, #fff); border: 1px solid var(--color-border, #e5e7eb); border-radius: 0.75rem; padding: 1.25rem; transition: box-shadow 0.15s, border-color 0.15s; }
   .product-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); border-color: var(--color-primary, #e85d04); }
   .product-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.5rem; }
-  .product-name   { font-weight: 600; font-size: 1rem; color: var(--color-text); }
+  .product-name   { font-weight: 600; font-size: 1rem; color: var(--color-text); text-decoration: none; }
+  .product-name:hover { color: var(--color-primary, #e85d04); text-decoration: underline; }
   .product-price  { font-weight: 700; color: var(--color-primary, #e85d04); white-space: nowrap; }
   .product-desc   { font-size: 0.85rem; color: var(--color-muted); margin: 0 0 0.75rem; line-height: 1.45; }
   .product-footer { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .card-actions   { display: flex; gap: 0.5rem; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--color-border, #e5e7eb); }
   .tag            { font-size: 0.75rem; background: var(--color-surface-2, #f5f5f5); padding: 0.15rem 0.5rem; border-radius: 4px; color: var(--color-muted); }
   .status-dot     { font-size: 0.75rem; color: #9ca3af; margin-left: auto; }
   .status-dot.active { color: #16a34a; }
@@ -339,6 +490,8 @@
   .btn-secondary:hover:not(:disabled) { background: var(--color-border, #e5e7eb); }
   .btn-ghost      { background: transparent; color: var(--color-muted); }
   .btn-ghost:hover:not(:disabled) { background: var(--color-surface-2, #f3f4f6); }
+  .btn-danger     { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+  .btn-danger:hover:not(:disabled) { background: #fecaca; }
   .btn-sm         { padding: 0.35rem 0.75rem; font-size: 0.8rem; }
 
   @media (max-width: 600px) {

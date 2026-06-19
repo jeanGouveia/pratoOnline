@@ -80,6 +80,7 @@ func main() {
 		r.Post("/api/products",                        productHandler.CreateProduct)
 		r.Get("/api/products",                         productHandler.ListProducts)
 		r.Get("/api/products/{id}",                    productHandler.GetProduct)
+		r.Put("/api/products/{id}",                    productHandler.UpdateProduct)
 		r.Delete("/api/products/{id}",                 productHandler.DeleteProduct)
 		r.Put("/api/products/{id}/ingredients",        productHandler.SetProductIngredients)
 		r.Get("/api/products/{id}/ingredients",        productHandler.GetProductIngredients)
@@ -87,6 +88,9 @@ func main() {
 		// Ingredientes
 		r.Post("/api/ingredients",                     productHandler.CreateIngredient)
 		r.Get("/api/ingredients",                      productHandler.ListIngredients)
+		r.Get("/api/ingredients/{id}",                 productHandler.GetIngredient)
+		r.Put("/api/ingredients/{id}",                productHandler.UpdateIngredient)
+		r.Delete("/api/ingredients/{id}",             productHandler.DeleteIngredient)
 		r.Patch("/api/ingredients/{id}/stock",         productHandler.UpdateIngredientStock)
 
 		// Pedidos

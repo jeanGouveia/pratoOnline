@@ -4,6 +4,7 @@ export interface Ingredient {
   Unit: string;
   StockQuantity: number;
   MinStock: number;
+  Active: boolean;
   CreatedAt?: string;
   UpdatedAt?: string;
 }
