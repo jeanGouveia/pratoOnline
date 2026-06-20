@@ -169,6 +169,48 @@ func (r *GormOrderRepository) UpdateOrderStatus(
 	return nil
 }
 
+func (r *GormOrderRepository) UpdateOrderStatusWithAdjustments(
+	ctx context.Context,
+	id uint,
+	status domain.OrderStatus,
+	productIngredients map[uint][]domain.ProductIngredient,
+	orderItems []domain.OrderItem,
+) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 1. Atualizar status do pedido
+		if err := tx.Model(&gormOrder{}).
+			Where("id = ?", id).
+			Update("status", string(status)).Error; err != nil {
+			return fmt.Errorf("UpdateOrderStatusWithAdjustments: atualizar status: %w", err)
+		}
+
+		// 2. Se cancelado, registrar ajustes pendentes na mesma transação
+		if status == domain.OrderStatusCancelled {
+			for _, item := range orderItems {
+				ingredients, ok := productIngredients[item.ProductID]
+				if !ok || len(ingredients) == 0 {
+					// Produto simples ou sem ficha técnica: nada a registrar
+					continue
+				}
+
+				for _, pi := range ingredients {
+					consumedQuantity := pi.Quantity * item.Quantity
+					// Usar SQL direto para inserir ajuste (evita dependência de tipo GORM específico)
+					if err := tx.Exec(`
+						INSERT INTO stock_adjustments_pending 
+						(order_id, ingredient_id, quantity, order_status, status, created_at)
+						VALUES (?, ?, ?, ?, ?, datetime('now'))
+					`, id, pi.IngredientID, consumedQuantity, string(status), "pending").Error; err != nil {
+						return fmt.Errorf("UpdateOrderStatusWithAdjustments: criar ajuste: %w", err)
+					}
+				}
+			}
+		}
+
+		return nil
+	})
+}
+
 func orderToDomain(g *gormOrder) *domain.Order {
 	return &domain.Order{
 		ID: g.ID, Status: domain.OrderStatus(g.Status),

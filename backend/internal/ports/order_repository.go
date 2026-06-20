@@ -16,4 +16,15 @@ type OrderRepository interface {
 	FindOrderByID(ctx context.Context, id uint) (*domain.Order, error)
 	ListOrders(ctx context.Context) ([]domain.Order, error)
 	UpdateOrderStatus(ctx context.Context, id uint, status domain.OrderStatus) error
+
+	// UpdateOrderStatusWithAdjustments atualiza o status do pedido e registra ajustes de estoque
+	// em uma única transação atômica. Se o status for 'cancelled', registra ajustes pendentes.
+	// Se qualquer etapa falhar, rollback completo. Garante consistência entre status e auditoria.
+	UpdateOrderStatusWithAdjustments(
+		ctx context.Context,
+		id uint,
+		status domain.OrderStatus,
+		productIngredients map[uint][]domain.ProductIngredient,
+		orderItems []domain.OrderItem,
+	) error
 }

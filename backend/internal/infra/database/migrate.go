@@ -11,10 +11,10 @@ import (
 // Este arquivo garante que as tabelas existam no SQLite em dev sem precisar rodar Goose manualmente.
 
 type userMigrationModel struct {
-	ID           uint   `gorm:"primaryKey;autoIncrement"` 
-	Name         string `gorm:"not null"` 
-	Email        string `gorm:"uniqueIndex;not null"` 
-	PasswordHash string `gorm:"not null"` 
+	ID           uint   `gorm:"primaryKey;autoIncrement"`
+	Name         string `gorm:"not null"`
+	Email        string `gorm:"uniqueIndex;not null"`
+	PasswordHash string `gorm:"not null"`
 	CreatedAt    int64  `gorm:"autoCreateTime"`
 	UpdatedAt    int64  `gorm:"autoUpdateTime"`
 }
@@ -22,8 +22,8 @@ type userMigrationModel struct {
 func (userMigrationModel) TableName() string { return "users" }
 
 type productMigrationModel struct {
-	ID          uint    `gorm:"primaryKey;autoIncrement"`
-	Name        string  `gorm:"not null"`
+	ID          uint   `gorm:"primaryKey;autoIncrement"`
+	Name        string `gorm:"not null"`
 	Description string
 	Price       float64 `gorm:"not null;default:0"`
 	IsComposto  bool    `gorm:"not null;default:false"`
@@ -47,10 +47,10 @@ type ingredientMigrationModel struct {
 func (ingredientMigrationModel) TableName() string { return "ingredients" }
 
 type productIngredientMigrationModel struct {
-	ID           uint    `gorm:"primaryKey;autoIncrement"` 
-	ProductID    uint    `gorm:"not null;index"` 
-	IngredientID uint    `gorm:"not null"` 
-	Quantity     float64 `gorm:"not null"` 
+	ID           uint    `gorm:"primaryKey;autoIncrement"`
+	ProductID    uint    `gorm:"not null;index"`
+	IngredientID uint    `gorm:"not null"`
+	Quantity     float64 `gorm:"not null"`
 	CreatedAt    int64   `gorm:"autoCreateTime"`
 	UpdatedAt    int64   `gorm:"autoUpdateTime"`
 }
@@ -58,10 +58,10 @@ type productIngredientMigrationModel struct {
 func (productIngredientMigrationModel) TableName() string { return "product_ingredients" }
 
 type productCompositionMigrationModel struct {
-	ID                 uint    `gorm:"primaryKey;autoIncrement"` 
-	ParentProductID    uint    `gorm:"not null;index"` 
-	ComponentProductID uint    `gorm:"not null"` 
-	Quantity           float64 `gorm:"not null"` 
+	ID                 uint    `gorm:"primaryKey;autoIncrement"`
+	ParentProductID    uint    `gorm:"not null;index"`
+	ComponentProductID uint    `gorm:"not null"`
+	Quantity           float64 `gorm:"not null"`
 	CreatedAt          int64   `gorm:"autoCreateTime"`
 	UpdatedAt          int64   `gorm:"autoUpdateTime"`
 }
@@ -73,8 +73,8 @@ type orderMigrationModel struct {
 	Status     string  `gorm:"not null;default:'pending'"`
 	TotalPrice float64 `gorm:"not null;default:0"`
 	Notes      string
-	CreatedAt  int64   `gorm:"autoCreateTime"`
-	UpdatedAt  int64   `gorm:"autoUpdateTime"`
+	CreatedAt  int64 `gorm:"autoCreateTime"`
+	UpdatedAt  int64 `gorm:"autoUpdateTime"`
 }
 
 func (orderMigrationModel) TableName() string { return "orders" }
@@ -91,6 +91,19 @@ type orderItemMigrationModel struct {
 
 func (orderItemMigrationModel) TableName() string { return "order_items" }
 
+type stockAdjustmentPendingMigrationModel struct {
+	ID           uint    `gorm:"primaryKey;autoIncrement"`
+	OrderID      uint    `gorm:"not null;index"`
+	IngredientID uint    `gorm:"not null;index"`
+	Quantity     float64 `gorm:"not null"`
+	OrderStatus  string  `gorm:"not null"`
+	Status       string  `gorm:"not null;default:'pending';index"`
+	CreatedAt    int64   `gorm:"autoCreateTime"`
+	ProcessedAt  *int64  `gorm:"index"`
+}
+
+func (stockAdjustmentPendingMigrationModel) TableName() string { return "stock_adjustments_pending" }
+
 // RunMigrations executa o AutoMigrate do GORM para todas as tabelas do sistema.
 // Em produção com Oracle, substitua por Goose com migrations SQL versionadas.
 func RunMigrations(db *gorm.DB) error {
@@ -102,6 +115,7 @@ func RunMigrations(db *gorm.DB) error {
 		&productCompositionMigrationModel{},
 		&orderMigrationModel{},
 		&orderItemMigrationModel{},
+		&stockAdjustmentPendingMigrationModel{},
 	}
 
 	if err := db.AutoMigrate(models...); err != nil {

@@ -34,18 +34,18 @@ func main() {
 	}
 
 	// --- Injeção de Dependência (DI manual, sem framework) ---
-	userRepo    := repository.NewGormUserRepository(db)
+	userRepo := repository.NewGormUserRepository(db)
 	productRepo := repository.NewGormProductRepository(db)
-	orderRepo   := repository.NewGormOrderRepository(db, productRepo)
+	orderRepo := repository.NewGormOrderRepository(db, productRepo)
 
-	authSvc    := service.NewAuthService(userRepo)
+	authSvc := service.NewAuthService(userRepo)
 	productSvc := service.NewProductService(productRepo)
-	orderSvc   := service.NewOrderService(orderRepo, productRepo)
+	orderSvc := service.NewOrderService(orderRepo, productRepo)
 
-	authHandler    := handler.NewAuthHandler(authSvc)
+	authHandler := handler.NewAuthHandler(authSvc)
 	productHandler := handler.NewProductHandler(productSvc)
-	orderHandler   := handler.NewOrderHandler(orderSvc)
-	authMw         := middleware.NewAuthMiddleware(authSvc)
+	orderHandler := handler.NewOrderHandler(orderSvc)
+	authMw := middleware.NewAuthMiddleware(authSvc)
 
 	// --- Router ---
 	r := chi.NewRouter()
@@ -66,8 +66,8 @@ func main() {
 
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Post("/register", authHandler.Register)
-		r.Post("/login",    authHandler.Login)
-		r.Post("/logout",   authHandler.Logout)
+		r.Post("/login", authHandler.Login)
+		r.Post("/logout", authHandler.Logout)
 	})
 
 	// --- Rotas privadas (protegidas pelo AuthMiddleware) ---
@@ -77,27 +77,27 @@ func main() {
 		r.Get("/api/me", authHandler.Me)
 
 		// Produtos
-		r.Post("/api/products",                        productHandler.CreateProduct)
-		r.Get("/api/products",                         productHandler.ListProducts)
-		r.Get("/api/products/{id}",                    productHandler.GetProduct)
-		r.Put("/api/products/{id}",                    productHandler.UpdateProduct)
-		r.Delete("/api/products/{id}",                 productHandler.DeleteProduct)
-		r.Put("/api/products/{id}/ingredients",        productHandler.SetProductIngredients)
-		r.Get("/api/products/{id}/ingredients",        productHandler.GetProductIngredients)
+		r.Post("/api/products", productHandler.CreateProduct)
+		r.Get("/api/products", productHandler.ListProducts)
+		r.Get("/api/products/{id}", productHandler.GetProduct)
+		r.Put("/api/products/{id}", productHandler.UpdateProduct)
+		r.Delete("/api/products/{id}", productHandler.DeleteProduct)
+		r.Put("/api/products/{id}/ingredients", productHandler.SetProductIngredients)
+		r.Get("/api/products/{id}/ingredients", productHandler.GetProductIngredients)
 
 		// Ingredientes
-		r.Post("/api/ingredients",                     productHandler.CreateIngredient)
-		r.Get("/api/ingredients",                      productHandler.ListIngredients)
-		r.Get("/api/ingredients/{id}",                 productHandler.GetIngredient)
-		r.Put("/api/ingredients/{id}",                productHandler.UpdateIngredient)
-		r.Delete("/api/ingredients/{id}",             productHandler.DeleteIngredient)
-		r.Patch("/api/ingredients/{id}/stock",         productHandler.UpdateIngredientStock)
+		r.Post("/api/ingredients", productHandler.CreateIngredient)
+		r.Get("/api/ingredients", productHandler.ListIngredients)
+		r.Get("/api/ingredients/{id}", productHandler.GetIngredient)
+		r.Put("/api/ingredients/{id}", productHandler.UpdateIngredient)
+		r.Delete("/api/ingredients/{id}", productHandler.DeleteIngredient)
+		r.Patch("/api/ingredients/{id}/stock", productHandler.UpdateIngredientStock)
 
 		// Pedidos
-		r.Post("/api/orders",                          orderHandler.CreateOrder)
-		r.Get("/api/orders",                           orderHandler.ListOrders)
-		r.Get("/api/orders/{id}",                      orderHandler.GetOrder)
-		r.Patch("/api/orders/{id}/status",             orderHandler.UpdateOrderStatus)
+		r.Post("/api/orders", orderHandler.CreateOrder)
+		r.Get("/api/orders", orderHandler.ListOrders)
+		r.Get("/api/orders/{id}", orderHandler.GetOrder)
+		r.Patch("/api/orders/{id}/status", orderHandler.UpdateOrderStatus)
 	})
 
 	// --- Servidor ---

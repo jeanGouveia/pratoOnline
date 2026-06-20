@@ -10,7 +10,7 @@ import (
 	"github.com/jeanGouveia/pratoOnline/backend/internal/ports"
 )
 
-var ErrOrderNotFound      = errors.New("pedido não encontrado")
+var ErrOrderNotFound = errors.New("pedido não encontrado")
 var ErrInvalidOrderStatus = errors.New("status de pedido inválido")
 
 type OrderService struct {
@@ -19,7 +19,10 @@ type OrderService struct {
 }
 
 func NewOrderService(orderRepo ports.OrderRepository, productRepo ports.ProductRepository) *OrderService {
-	return &OrderService{orderRepo: orderRepo, productRepo: productRepo}
+	return &OrderService{
+		orderRepo:   orderRepo,
+		productRepo: productRepo,
+	}
 }
 
 // ── Inputs ───────────────────────────────────────────────────────────────────
@@ -128,9 +131,38 @@ func (s *OrderService) UpdateOrderStatus(ctx context.Context, id uint, in Update
 		return nil, fmt.Errorf("transição inválida: %s → %s", order.Status, newStatus)
 	}
 
-	if err := s.orderRepo.UpdateOrderStatus(ctx, id, newStatus); err != nil {
-		return nil, fmt.Errorf("OrderService.UpdateOrderStatus: %w", err)
+	// Se o pedido está sendo cancelado, usar transação atômica para:
+	// 1. Atualizar status do pedido
+	// 2. Registrar ajustes pendentes
+	// Garante consistência: ou ambos sucedem, ou ambos falham
+	if newStatus == domain.OrderStatusCancelled {
+		// Carregar fichas técnicas dos produtos do pedido
+		productIngredients := make(map[uint][]domain.ProductIngredient)
+		for _, item := range order.Items {
+			ingredients, err := s.productRepo.GetProductIngredients(ctx, item.ProductID)
+			if err != nil {
+				return nil, fmt.Errorf("OrderService.UpdateOrderStatus: carregar ficha técnica produto_id=%d: %w", item.ProductID, err)
+			}
+			productIngredients[item.ProductID] = ingredients
+		}
+
+		// Executar atualização de status e registro de ajustes em transação atômica
+		if err := s.orderRepo.UpdateOrderStatusWithAdjustments(
+			ctx,
+			order.ID,
+			newStatus,
+			productIngredients,
+			order.Items,
+		); err != nil {
+			return nil, fmt.Errorf("OrderService.UpdateOrderStatus: %w", err)
+		}
+	} else {
+		// Para outros status, apenas atualizar o status
+		if err := s.orderRepo.UpdateOrderStatus(ctx, id, newStatus); err != nil {
+			return nil, fmt.Errorf("OrderService.UpdateOrderStatus: %w", err)
+		}
 	}
+
 	order.Status = newStatus
 	return order, nil
 }
